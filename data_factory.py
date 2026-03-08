@@ -6,6 +6,7 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import shutil
 import sys
+import os  # 👈 确保最上面导入了 os 库
 
 # ==========================================
 # 1. 全局配置与靶点参数 (FIPV 假结基线)
@@ -13,9 +14,13 @@ import sys
 BASE_SEQ = "GCGGUUGCAUCUUGCAAAAAUGGUAUCGAAGGUACGAACAAUA"
 IDEAL_DB = "(((((((.....[[[[[[......)))))))......]]]]]]"
 
-TOTAL_SAMPLES = 5000
+# 【火力全开配置】
+TOTAL_SAMPLES = 50000  # 👈 先来 5 万条试试水！(如果时间充裕可以直接填 100000)
 MUTATION_RATE = 0.15
-NUM_WORKERS = 8
+
+# 👈 核心魔法：让 Python 自动侦测并榨干你电脑的所有 CPU 核心！
+# 如果你是 i9，这里可能会自动变成 24 或 32！留 2 个核心给系统喘气。
+NUM_WORKERS = max(1, os.cpu_count() - 2)
 
 
 # ==========================================
