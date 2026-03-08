@@ -3,6 +3,10 @@ import numpy as np
 from rdkit import Chem
 from meeko import MoleculePreparation
 from vina import Vina
+import warnings
+
+# 屏蔽 Meeko 的版本过渡期警告，保持战报清爽
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 print("🚀 正在启动 T-SFE 分子对接引擎 (AutoDock Vina)...")
 
@@ -10,7 +14,7 @@ print("🚀 正在启动 T-SFE 分子对接引擎 (AutoDock Vina)...")
 # 1. 极客魔改：将靶点 PDB 转换为 Vina 专用的 PDBQT 格式
 # ==========================================
 def convert_rna_pdb_to_pdbqt(pdb_file, pdbqt_file):
-    """为 RNA 靶点强行注入 Vina 兼容的部分电荷和原子类型"""
+    """为 RNA 靶点强行注入 Vina 兼容的部分电荷和原子类型 (完美空格对齐版)"""
     coords = []
     with open(pdb_file, 'r') as f_in, open(pdbqt_file, 'w') as f_out:
         for line in f_in:
@@ -21,15 +25,20 @@ def convert_rna_pdb_to_pdbqt(pdb_file, pdbqt_file):
                 
                 # 提取元素并推断 AutoDock 识别的物理化学类型
                 element = line[76:78].strip().upper()
+                if not element: # AlphaFold 有时可能不写元素列，我们兜底推断
+                    element = line[12:16].strip()[0]
+                    
                 ad_type = element
-                if element == 'C': ad_type = 'C'  # 碳骨架
-                elif element == 'N': ad_type = 'NA' # 氢键受体/供体
-                elif element == 'O': ad_type = 'OA' # 氧原子
-                elif element == 'P': ad_type = 'P'  # 磷酸骨架
-                elif element == 'H': ad_type = 'HD' # 质子
+                if element == 'C': ad_type = 'C'  
+                elif element == 'N': ad_type = 'NA' 
+                elif element == 'O': ad_type = 'OA' 
+                elif element == 'P': ad_type = 'P'  
+                elif element == 'H': ad_type = 'HD' 
                 
-                # 严格按照 AutoDock 格式规范拼装字符串
-                new_line = line[:66].ljust(66) + "   0.000 " + ad_type.ljust(2) + "\n"
+                # 【防弹级对齐】：满足 Vina 极其变态的列宽强迫症
+                base_info = line[:66].ljust(66)
+                # 4个空格 + 6位电荷 (+0.000) + 1个空格 + 2位原子类型
+                new_line = f"{base_info}    +0.000 {ad_type.ljust(2)}\n"
                 f_out.write(new_line)
     return np.mean(coords, axis=0) if coords else [0, 0, 0]
 
@@ -41,14 +50,12 @@ print(f"🎯 竞技场中心已锁定: X={center_coords[0]:.2f}, Y={center_coord
 # 2. 弹药装填：准备小分子配体
 # ==========================================
 def prepare_ligand(sdf_file, pdbqt_name):
-    # 用 RDKit 读入小分子的 3D 构象
     supplier = Chem.SDMolSupplier(sdf_file, removeHs=False, sanitize=False)
     mol = supplier[0]
     if mol is None:
         raise ValueError(f"读取 {sdf_file} 失败，请检查文件。")
     Chem.SanitizeMol(mol)
     
-    # 用 Meeko 为小分子计算电荷并识别可旋转的“柔性键”
     prep = MoleculePreparation()
     prep.prepare(mol)
     prep.write_pdbqt_file(pdbqt_name)
@@ -71,7 +78,6 @@ print("\n[3/3] 轰鸣吧！开始计算靶点与小分子的物理结合能...")
 v = Vina(sf_name='vina')
 v.set_receptor("fipv_target.pdbqt")
 
-# 设置一个 40x40x40 埃的隐形盒子，足够包裹住 AlphaFold 生成的整个假结
 v.compute_vina_maps(center=center_coords, box_size=[40.0, 40.0, 40.0])
 
 results = {}
@@ -80,14 +86,11 @@ for name, file in ligands.items():
     print(f"\n▶ 正在将 {name} 射入假结口袋...")
     
     v.set_ligand_from_file(pdbqt_file)
-    # exhaustiveness=8：搜索深度，数字越大算得越精细
     v.dock(exhaustiveness=8, n_poses=1) 
     
-    # 提取结合能 (Binding Affinity)，单位是 kcal/mol
     energy = v.energies(n_poses=1)[0][0] 
     results[name] = energy
     
-    # 将小分子成功卡入靶点后的 3D 构象保存下来，稍后可以用 PyMOL 观赏！
     out_file = file.replace('.sdf', '_docked.pdbqt')
     v.write_poses(out_file, n_poses=1, overwrite=True)
 
